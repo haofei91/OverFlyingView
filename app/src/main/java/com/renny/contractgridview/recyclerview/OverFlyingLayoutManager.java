@@ -38,6 +38,7 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
     private boolean topOverFlying;
 
 
+    private int collpaseLine;
 
     public OverFlyingLayoutManager() {
         this(OrientationHelper.VERTICAL);
@@ -104,7 +105,9 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
 
         viewHeight = getDecoratedMeasuredHeight(view);
         overFlyingDist = (int) (slowTimes * viewHeight);
-        totalHeight = getItemCount() * viewHeight;
+        totalHeight = getVerticalSpace();
+
+        collpaseLine = (int) (getVerticalSpace());
         Log.d(TAG, "childCountI = " + getChildCount() + "  itemCount= " + recycler.getScrapList().size());
 
     }
@@ -274,33 +277,24 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
                 }
                 if (i != itemCount - 1) {//除最后一个外的底部慢速动画
                     if(offset == 0){
-                        int edgeDist = (int) (displayHeight - height * edgePercent);//阀值距离的全局坐标
-                        int bottom = (int) (edgeDist + (bottomOffset - edgeDist) / slowTimes); //到达边界后速度放慢到原来5分之一，计算出实际需要的底部位置
+                        int bottom = (int) (totalHeight - (itemCount -1 -i) * height * 0.2);
                         bottom = Math.min(bottom, displayHeight);
                         realBottomOffset = bottom;
 
                         margin = bottom-height;
                     }else{
-                        int beginOffset = displayHeight - offset;
-                        if(offset >= margin){
-                            if (displayHeight - bottomOffset <= height * edgePercent) {//当前item的底部偏差量（容器底部全局坐标 - item的底部全局坐标） 已经达到 阀值距离
-                                int edgeDist = (int) (displayHeight - height * edgePercent);//阀值距离的全局坐标
-                                int bottom = (int) (edgeDist + (bottomOffset - edgeDist) / slowTimes); //到达边界后速度放慢到原来5分之一，计算出实际需要的底部位置
-                                bottom = Math.min(bottom, displayHeight);
-                                realBottomOffset = bottom;
-
-                            }
-                        }else{
+                        if (displayHeight - bottomOffset <= height * edgePercent) {//当前item的底部偏差量（容器底部全局坐标 - item的底部全局坐标） 已经达到 阀值距离
                             int edgeDist = (int) (displayHeight - height * edgePercent);//阀值距离的全局坐标
-                            int bottom = (int) ((edgeDist + (bottomOffset - edgeDist) / slowTimes)); //到达边界后速度放慢到原来5分之一，计算出实际需要的底部位置
+                            int bottom = (int) (edgeDist + (bottomOffset - edgeDist) / slowTimes); //到达边界后速度放慢到原来5分之一，计算出实际需要的底部位置
                             bottom = Math.min(bottom, displayHeight);
                             realBottomOffset = bottom;
+
                         }
 
                     }
 
                 } else {// 如果是最后一个就不需要动画了,因为已经在底部了
-                    realBottomOffset = totalHeight > displayHeight ? displayHeight : totalHeight;
+                    realBottomOffset = totalHeight;
                 }
                 layoutDecoratedWithMargins(view, 0, realBottomOffset - height, width, realBottomOffset);
             }

@@ -139,25 +139,26 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
     public int scrollVerticallyBy(int dy, RecyclerView.Recycler recycler, RecyclerView.State state) {
         //列表向下滚动dy为正，列表向上滚动dy为负，这点与Android坐标系保持一致。
         int tempDy = dy;
-        if (verticalScrollOffset <= totalHeight - getVerticalSpace()) {
-            verticalScrollOffset += dy;
-            //将竖直方向的偏移量+travel
+        verticalScrollOffset += dy;
+        //将竖直方向的偏移量+travel
+
+        if(verticalScrollOffset > getVerticalSpace()){
+            verticalScrollOffset = getVerticalSpace();
         }
-        if (verticalScrollOffset > totalHeight - getVerticalSpace()) {
-            verticalScrollOffset = totalHeight - getVerticalSpace();
-            tempDy = 0;
-        } else if (verticalScrollOffset < 0) {
+
+      if (verticalScrollOffset < 0) {
             verticalScrollOffset = 0;
             tempDy = 0;
         }
         detachAndScrapAttachedViews(recycler);
-        addAndLayoutViewVertical(recycler, state, verticalScrollOffset); //从新布局位置、显示View
+        addAndLayoutViewVertical(recycler, state, dy > 0 ? 1 : 0); //从新布局位置、显示View
         return tempDy;
     }
 
     @Override
     public int scrollHorizontallyBy(int dx, RecyclerView.Recycler recycler, RecyclerView.State state) {
 
+        Log.d(TAG, "scrollHorizontallyBy  dx= " + dx);
         int tempDx = dx;
         if (horizontalScrollOffset <= totalWidth - getHorizontalSpace()) {
             horizontalScrollOffset += dx;
@@ -242,62 +243,39 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
         int displayHeight = getVerticalSpace();
         for (int i = itemCount - 1; i >= 0; i--) {//反向遍历Recycler中保存的View取出来
 
-            // 遍历Recycler中保存的View取出来
-            int bottomOffset = (i + 1) * viewHeight - offset;//当前位置元素的上下边界
-            int topOffset = i * viewHeight - offset;//当前位置元素的上下边界
-            boolean needAdd = true;
-            if (bottomOffset - displayHeight >= overFlyingDist) {//item在下方，并且超过n个item的----->不在加入，否则表示需要折叠
-                needAdd = false;
-            }
-            if (topOffset < -overFlyingDist && i != 0 && topOverFlying //item在上方，头部折叠，并且超过n个item的
-                    || topOffset < -overFlyingDist && !topOverFlying) {//item在上方，头部不折叠-------->不在加入，否则表示需要折叠
-                needAdd = false;
-            }
-            if (needAdd) {
-                View view = recycler.getViewForPosition(i);
-                addView(view); // 因为刚刚进行了detach操作，所以现在可以重新添加
-                measureChildWithMargins(view, 0, 0); // 通知测量view的margin值
-                int width = getDecoratedMeasuredWidth(view); // 计算view实际大小，包括了ItemDecorator中设置的偏移量。
-                int height = getDecoratedMeasuredHeight(view);
-                //调用这个方法能够调整ItemView的大小，以除去ItemDecorator。
-                calculateItemDecorationsForChild(view, new Rect());
-                int realBottomOffset = bottomOffset;//初始化为逻辑位置
-                if (topOverFlying) {
-                    if (i != 0) {//除第一个外的顶部黏性动画
-                        if (topOffset <= height * edgePercent) {//到达顶部边界了
-                            int edgeDist = (int) (height * edgePercent);//边界触发距离
-                            int top = (int) (edgeDist - (edgeDist - topOffset) / slowTimes);//到达边界后速度放慢到原来5分之一
+            View view = recycler.getViewForPosition(i);
+            addView(view); // 因为刚刚进行了detach操作，所以现在可以重新添加
+            measureChildWithMargins(view, 0, 0); // 通知测量view的margin值
+            int width = getDecoratedMeasuredWidth(view); // 计算view实际大小，包括了ItemDecorator中设置的偏移量。
+            int height = getDecoratedMeasuredHeight(view);
+            //调用这个方法能够调整ItemView的大小，以除去ItemDecorator。
+            calculateItemDecorationsForChild(view, new Rect());
+            int realBottomOffset = totalHeight;//初始化为逻辑位置
+            if (i != itemCount - 1) {//除最后一个外的底部慢速动画
+                if(offset == 0){
+                    int bottom = (int) (totalHeight - (itemCount -1 -i) * height * 0.02);
+                    bottom = Math.min(bottom, displayHeight);
+                    realBottomOffset = bottom;
 
-                            top = Math.max(top, 0);
-                            realBottomOffset = top + height;
-                        }
-                    } else {
-                        realBottomOffset = height;
+                    margin = bottom-height;
+                }else{
+                    int bottom = (int) (totalHeight - (itemCount -1 -i) * height);
+                    realBottomOffset = bottom;
+
+                    Log.d(TAG, "i = " + i + "  realBottomOffset= " + realBottomOffset);
+
+                    //超出界面的就不画了,也不add了
+                    if (realBottomOffset < 0){
+                        removeView(view);
+                        break;
                     }
                 }
-                if (i != itemCount - 1) {//除最后一个外的底部慢速动画
-                    if(offset == 0){
-                        int bottom = (int) (totalHeight - (itemCount -1 -i) * height * 0.2);
-                        bottom = Math.min(bottom, displayHeight);
-                        realBottomOffset = bottom;
 
-                        margin = bottom-height;
-                    }else{
-                        if (displayHeight - bottomOffset <= height * edgePercent) {//当前item的底部偏差量（容器底部全局坐标 - item的底部全局坐标） 已经达到 阀值距离
-                            int edgeDist = (int) (displayHeight - height * edgePercent);//阀值距离的全局坐标
-                            int bottom = (int) (edgeDist + (bottomOffset - edgeDist) / slowTimes); //到达边界后速度放慢到原来5分之一，计算出实际需要的底部位置
-                            bottom = Math.min(bottom, displayHeight);
-                            realBottomOffset = bottom;
-
-                        }
-
-                    }
-
-                } else {// 如果是最后一个就不需要动画了,因为已经在底部了
-                    realBottomOffset = totalHeight;
-                }
-                layoutDecoratedWithMargins(view, 0, realBottomOffset - height, width, realBottomOffset);
+            } else {// 如果是最后一个就不需要动画了,因为已经在底部了
+                realBottomOffset = totalHeight;
+                Log.d(TAG, "i = " + i + "  realBottomOffset= " + realBottomOffset);
             }
+            layoutDecoratedWithMargins(view, 0, realBottomOffset - height, width, realBottomOffset);
         }
 
         Log.d(TAG, "childCount = " + getChildCount() + "  itemCount= " + itemCount);

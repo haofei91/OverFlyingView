@@ -31,7 +31,7 @@ public class Vertial2Activity extends AppCompatActivity {
         mRecyclerView.setLayoutManager(layoutManager);
 
         //构建一个临时数据源
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 16; i++) {
             items.add("Item:第" + i + "项");
         }
         mAdapter = new ItemAdapter(items);

@@ -17,28 +17,22 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
 
     private static final String TAG = "OverFlying";
 
-    private int viewWidth, viewHeight;
-    private int totalHeight = 0;
-    private int totalWidth = 0;
-
     private @FloatRange(from = 0.01, to = 1.0)
     float edgePercent = 0.8f;//触发边缘动画距离百分比
 
     private @FloatRange(from = 1)
-    float slowTimes = 3;//到达此距离后放慢倍数，影响重叠个数
-    private int overFlyingDist;//屏幕外的，该范围差内的元素，，，需要移动到屏幕内进行折叠展示
+    float slowTimes = 3;//到达此距离后放慢倍数
 
     private int orientation = OrientationHelper.VERTICAL;
-    private int verticalScrollOffset;//累计的偏移量
-    private int horizontalScrollOffset;
-
     private boolean offsetUseful = false;
-
+    private int overFlyingDist;
+    private int totalHeight = 0;
+    private int totalWidth = 0;
+    private int verticalScrollOffset;
+    private int horizontalScrollOffset;
     //头部是否也要层叠，默认需要
     private boolean topOverFlying;
-
-
-    private int collpaseLine;
+    private int viewWidth, viewHeight;
 
     public OverFlyingLayoutManager() {
         this(OrientationHelper.VERTICAL);
@@ -90,7 +84,7 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
     private void calculateChildrenSite(RecyclerView.Recycler recycler, RecyclerView.State state) {
         if (orientation == OrientationHelper.VERTICAL) {
             calculateChildrenSiteVertical(recycler, state);
-            addAndLayoutViewVertical(recycler, state, verticalScrollOffset);
+            addAndLayoutViewVertical(recycler, state, verticalScrollOffset, 0);
         } else {
             calculateChildrenSiteHorizontal(recycler, state);
             addAndLayoutViewHorizontal(recycler, state, horizontalScrollOffset);
@@ -105,9 +99,7 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
 
         viewHeight = getDecoratedMeasuredHeight(view);
         overFlyingDist = (int) (slowTimes * viewHeight);
-        totalHeight = getVerticalSpace();
-
-        collpaseLine = (int) (getVerticalSpace());
+        totalHeight = getItemCount() * viewHeight;
         Log.d(TAG, "childCountI = " + getChildCount() + "  itemCount= " + recycler.getScrapList().size());
 
     }
@@ -139,26 +131,25 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
     public int scrollVerticallyBy(int dy, RecyclerView.Recycler recycler, RecyclerView.State state) {
         //列表向下滚动dy为正，列表向上滚动dy为负，这点与Android坐标系保持一致。
         int tempDy = dy;
-        verticalScrollOffset += dy;
-        //将竖直方向的偏移量+travel
-
-        if(verticalScrollOffset > getVerticalSpace()){
-            verticalScrollOffset = getVerticalSpace();
+        if (verticalScrollOffset <= totalHeight - getVerticalSpace()) {
+            verticalScrollOffset += dy;
+            //将竖直方向的偏移量+travel
         }
-
-      if (verticalScrollOffset < 0) {
+        if (verticalScrollOffset > totalHeight - getVerticalSpace()) {
+            verticalScrollOffset = totalHeight - getVerticalSpace();
+            tempDy = 0;
+        } else if (verticalScrollOffset < 0) {
             verticalScrollOffset = 0;
             tempDy = 0;
         }
         detachAndScrapAttachedViews(recycler);
-        addAndLayoutViewVertical(recycler, state, dy > 0 ? 1 : 0); //从新布局位置、显示View
+        addAndLayoutViewVertical(recycler, state, verticalScrollOffset, dy); //从新布局位置、显示View
         return tempDy;
     }
 
     @Override
     public int scrollHorizontallyBy(int dx, RecyclerView.Recycler recycler, RecyclerView.State state) {
 
-        Log.d(TAG, "scrollHorizontallyBy  dx= " + dx);
         int tempDx = dx;
         if (horizontalScrollOffset <= totalWidth - getHorizontalSpace()) {
             horizontalScrollOffset += dx;
@@ -177,23 +168,65 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
 
     }
 
-    private void initAndLayoutViewVertical(RecyclerView.Recycler recycler, RecyclerView.State state, int offset) {
+    private void addAndLayoutViewVertical(RecyclerView.Recycler recycler, RecyclerView.State state, int offset, int dy) {
         int itemCount = getItemCount();
         if (itemCount <= 0 || state.isPreLayout()) {
             return;
         }
         int displayHeight = getVerticalSpace();
-        for (int i = itemCount - 1; i >= 0; i--) {//反向遍历Recycler中保存的View取出来
+        if(offset == 0 || totalHeight <= displayHeight){
+            for (int i = itemCount - 1; i >= 0; i--) {//反向遍历Recycler中保存的View取出来
+
+                View view = recycler.getViewForPosition(i);
+                addView(view); // 因为刚刚进行了detach操作，所以现在可以重新添加
+                measureChildWithMargins(view, 0, 0); // 通知测量view的margin值
+                int width = getDecoratedMeasuredWidth(view); // 计算view实际大小，包括了ItemDecorator中设置的偏移量。
+                int height = getDecoratedMeasuredHeight(view);
+                //调用这个方法能够调整ItemView的大小，以除去ItemDecorator。
+                calculateItemDecorationsForChild(view, new Rect());
+                int realBottomOffset = totalHeight;//初始化为逻辑位置
+                if (i != itemCount - 1) {//除最后一个外的底部慢速动画
+                    if(dy <= 0){
+                        int bottom = (int) (displayHeight - (itemCount -1 -i) * height * 0.05);
+                        bottom = Math.min(bottom, displayHeight);
+                        realBottomOffset = bottom;
+
+                       
+                    }else{
+                        int bottom = (int) (displayHeight - (itemCount -1 -i) * height);
+                        realBottomOffset = bottom;
+
+                        Log.d(TAG, "i = " + i + "  realBottomOffset= " + realBottomOffset);
+
+                        //超出界面的就不画了,也不add了
+                        if (realBottomOffset < 0){
+                            removeView(view);
+                            break;
+                        }
+                    }
+
+                } else {// 如果是最后一个就不需要动画了,因为已经在底部了
+                    realBottomOffset = displayHeight;
+                    Log.d(TAG, "i = " + i + "  realBottomOffset= " + realBottomOffset);
+                }
+                layoutDecoratedWithMargins(view, 0, realBottomOffset - height, width, realBottomOffset);
+            }
+
+            return;
+        }
+
+
+        for (int i = itemCount - 1; i >= 0; i--) {
 
             // 遍历Recycler中保存的View取出来
-            int bottomOffset = (i + 1) * viewHeight - offset;//当前位置元素的上下边界
-            int topOffset = i * viewHeight - offset;//当前位置元素的上下边界
+            int bottomOffset = (i + 1) * viewHeight - offset;
+            int topOffset = i * viewHeight - offset;
             boolean needAdd = true;
-            if (bottomOffset - displayHeight >= overFlyingDist) {//item在下方，并且超过n个item的----->不在加入显示，否则表示需要折叠
+            if (bottomOffset - displayHeight >= overFlyingDist) {
                 needAdd = false;
             }
-            if (topOffset < -overFlyingDist && i != 0 && topOverFlying //item在上方，头部折叠，并且超过n个item的
-                    || topOffset < -overFlyingDist && !topOverFlying) {//item在上方，头部不折叠-------->不在加入显示，否则表示需要折叠
+            if (topOffset < -overFlyingDist && i != 0 && topOverFlying
+                    || topOffset < -overFlyingDist && !topOverFlying) {
                 needAdd = false;
             }
             if (needAdd) {
@@ -219,13 +252,14 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
                     }
                 }
                 if (i != itemCount - 1) {//除最后一个外的底部慢速动画
-                    //if (displayHeight - bottomOffset <= height * edgePercent) {//当前item的底部偏差量（容器底部全局坐标 - item的底部全局坐标） 已经达到 阀值距离
-                        int edgeDist = (int) (displayHeight - height * edgePercent);//阀值距离的全局坐标
-                        int bottom = (int) (edgeDist + (bottomOffset - edgeDist) / slowTimes); //到达边界后速度放慢到原来5分之一，计算出实际需要的底部位置
+                    if (displayHeight - bottomOffset <= height * edgePercent) {
+                        int edgeDist = (int) (displayHeight - height * edgePercent);
+                        int bottom = (int) (edgeDist + (bottomOffset - edgeDist) / slowTimes);
                         bottom = Math.min(bottom, displayHeight);
                         realBottomOffset = bottom;
-                   // }
-                } else {// 如果是最后一个就不需要动画了,因为已经在底部了
+
+                    }
+                } else {
                     realBottomOffset = totalHeight > displayHeight ? displayHeight : totalHeight;
                 }
                 layoutDecoratedWithMargins(view, 0, realBottomOffset - height, width, realBottomOffset);
@@ -234,54 +268,6 @@ public class OverFlyingLayoutManager extends RecyclerView.LayoutManager {
 
         Log.d(TAG, "childCount = " + getChildCount() + "  itemCount= " + itemCount);
     }
-
-    private void addAndLayoutViewVertical(RecyclerView.Recycler recycler, RecyclerView.State state, int offset) {
-        int itemCount = getItemCount();
-        if (itemCount <= 0 || state.isPreLayout()) {
-            return;
-        }
-        int displayHeight = getVerticalSpace();
-        for (int i = itemCount - 1; i >= 0; i--) {//反向遍历Recycler中保存的View取出来
-
-            View view = recycler.getViewForPosition(i);
-            addView(view); // 因为刚刚进行了detach操作，所以现在可以重新添加
-            measureChildWithMargins(view, 0, 0); // 通知测量view的margin值
-            int width = getDecoratedMeasuredWidth(view); // 计算view实际大小，包括了ItemDecorator中设置的偏移量。
-            int height = getDecoratedMeasuredHeight(view);
-            //调用这个方法能够调整ItemView的大小，以除去ItemDecorator。
-            calculateItemDecorationsForChild(view, new Rect());
-            int realBottomOffset = totalHeight;//初始化为逻辑位置
-            if (i != itemCount - 1) {//除最后一个外的底部慢速动画
-                if(offset == 0){
-                    int bottom = (int) (totalHeight - (itemCount -1 -i) * height * 0.02);
-                    bottom = Math.min(bottom, displayHeight);
-                    realBottomOffset = bottom;
-
-                    margin = bottom-height;
-                }else{
-                    int bottom = (int) (totalHeight - (itemCount -1 -i) * height);
-                    realBottomOffset = bottom;
-
-                    Log.d(TAG, "i = " + i + "  realBottomOffset= " + realBottomOffset);
-
-                    //超出界面的就不画了,也不add了
-                    if (realBottomOffset < 0){
-                        removeView(view);
-                        break;
-                    }
-                }
-
-            } else {// 如果是最后一个就不需要动画了,因为已经在底部了
-                realBottomOffset = totalHeight;
-                Log.d(TAG, "i = " + i + "  realBottomOffset= " + realBottomOffset);
-            }
-            layoutDecoratedWithMargins(view, 0, realBottomOffset - height, width, realBottomOffset);
-        }
-
-        Log.d(TAG, "childCount = " + getChildCount() + "  itemCount= " + itemCount);
-    }
-
-    private int margin=0;
 
     private void addAndLayoutViewHorizontal(RecyclerView.Recycler recycler, RecyclerView.State state, int offset) {
         int itemCount = getItemCount();
